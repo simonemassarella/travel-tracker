@@ -44,6 +44,10 @@ export default function AdminDashboard() {
   const [showCountrySuggestions, setShowCountrySuggestions] = useState(false);
   const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
   const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+  const [trips, setTrips] = useState<any[]>([]);
+  const [editingTrip, setEditingTrip] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<'create' | 'list'>('list');
+  const [uploadProgress, setUploadProgress] = useState<{[key: string]: number}>({});
 
   useEffect(() => {
     async function checkAuth() {
@@ -56,10 +60,21 @@ export default function AdminDashboard() {
         router.push('/admin');
       } else {
         setLoading(false);
+        fetchTrips();
       }
     }
     checkAuth();
   }, [router]);
+
+  const fetchTrips = async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase.from('trips').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.error('Errore durante fetch trips:', error);
+    } else {
+      setTrips(data || []);
+    }
+  };
 
   const handleLogout = async () => {
     if (supabase) {
@@ -135,6 +150,121 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleEditTrip = (trip: any) => {
+    setEditingTrip(trip);
+    setFormData({
+      title: trip.title,
+      description: trip.description,
+      country: trip.country || '',
+      city: trip.city || '',
+      lat: trip.lat,
+      lng: trip.lng,
+      date: trip.date,
+      images: trip.images || [],
+      youtube_links: trip.youtube_links || [],
+    });
+    setViewMode('create');
+  };
+
+  const handleDeleteTrip = async (tripId: string) => {
+    if (!confirm('Sei sicuro di voler eliminare questo viaggio?')) return;
+
+    if (!supabase) return;
+    const { error } = await supabase.from('trips').delete().eq('id', tripId);
+
+    if (error) {
+      setMessage('Errore durante eliminazione viaggio');
+      console.error(error);
+    } else {
+      setMessage('Viaggio eliminato con successo');
+      fetchTrips();
+    }
+  };
+
+  const handleDeleteImage = (imageUrl: string) => {
+    setFormData({
+      ...formData,
+      images: formData.images.filter(img => img !== imageUrl)
+    });
+  };
+
+  const handleAddImagesToTrip = async (e: React.ChangeEvent<HTMLInputElement>, tripId: string) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+
+    if (!cloudName || !uploadPreset) {
+      setMessage('Errore: Configurazione Cloudinary mancante');
+      return;
+    }
+
+    try {
+      const urls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', uploadPreset);
+
+        const response = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+
+        const data = await response.json();
+        urls.push(data.secure_url);
+
+        // Update progress
+        const progress = Math.round(((i + 1) / files.length) * 100);
+        setUploadProgress({ ...uploadProgress, [tripId]: progress });
+      }
+
+      if (!supabase) return;
+      const trip = trips.find(t => t.id === tripId);
+      if (trip) {
+        const { error } = await supabase
+          .from('trips')
+          .update({ images: [...(trip.images || []), ...urls] })
+          .eq('id', tripId);
+
+        if (error) throw error;
+        setMessage('Foto aggiunte con successo');
+        fetchTrips();
+        setUploadProgress({ ...uploadProgress, [tripId]: 0 });
+      }
+    } catch (error) {
+      console.error('Errore durante upload foto:', error);
+      setMessage('Errore durante upload foto');
+      setUploadProgress({ ...uploadProgress, [tripId]: 0 });
+    }
+  };
+
+  const handleDeleteImageFromTrip = async (tripId: string, imageUrl: string) => {
+    if (!confirm('Sei sicuro di voler eliminare questa foto?')) return;
+
+    if (!supabase) return;
+    const trip = trips.find(t => t.id === tripId);
+    if (trip) {
+      const { error } = await supabase
+        .from('trips')
+        .update({ images: trip.images?.filter((img: string) => img !== imageUrl) })
+        .eq('id', tripId);
+
+      if (error) {
+        setMessage('Errore durante eliminazione foto');
+        console.error(error);
+      } else {
+        setMessage('Foto eliminata con successo');
+        fetchTrips();
+      }
+    }
+  };
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -164,33 +294,36 @@ export default function AdminDashboard() {
       }
     }
 
-    const uploadPromises = Array.from(files).map(async (file) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('upload_preset', uploadPreset);
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-
-      const data = await response.json();
-      return data.secure_url;
-    });
-
     try {
-      const urls = await Promise.all(uploadPromises);
-      setFormData(prev => ({
-        ...prev,
-        images: [...prev.images, ...urls],
-        lat: gpsData ? gpsData.lat : prev.lat,
-        lng: gpsData ? gpsData.lng : prev.lng
-      }));
+      const urls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', uploadPreset);
+
+        const response = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+
+        const data = await response.json();
+        urls.push(data.secure_url);
+
+        // Update progress
+        const progress = Math.round(((i + 1) / files.length) * 100);
+        setUploadProgress({ ...uploadProgress, 'new': progress });
+      }
+
+      setFormData({ ...formData, images: [...formData.images, ...urls] });
+      setUploadProgress({ ...uploadProgress, 'new': 0 });
     } catch (error) {
-      setMessage('Errore durante l\'upload delle immagini');
+      console.error('Errore durante upload foto:', error);
+      setMessage('Errore durante upload foto');
+      setUploadProgress({ ...uploadProgress, 'new': 0 });
     }
   };
 
@@ -230,11 +363,29 @@ export default function AdminDashboard() {
         return;
       }
 
-      const { error } = await supabase.from('trips').insert([formData]);
+      let error;
+      if (editingTrip) {
+        // Update existing trip
+        const result = await supabase
+          .from('trips')
+          .update(formData)
+          .eq('id', editingTrip.id);
+        error = result.error;
+        if (!error) {
+          setMessage('Viaggio aggiornato con successo!');
+        }
+      } else {
+        // Create new trip
+        const result = await supabase.from('trips').insert([formData]);
+        error = result.error;
+        if (!error) {
+          setMessage('Viaggio aggiunto con successo!');
+        }
+      }
 
       if (error) throw error;
 
-      setMessage('Viaggio aggiunto con successo!');
+      // Reset form
       setFormData({
         title: '',
         description: '',
@@ -246,11 +397,30 @@ export default function AdminDashboard() {
         images: [],
         youtube_links: [],
       });
+      setEditingTrip(null);
+      setViewMode('list');
+      fetchTrips();
     } catch (error: any) {
-      setMessage(error.message || 'Errore durante l\'inserimento');
+      setMessage(error.message || 'Errore durante il salvataggio');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTrip(null);
+    setFormData({
+      title: '',
+      description: '',
+      country: '',
+      city: '',
+      lat: 0,
+      lng: 0,
+      date: '',
+      images: [],
+      youtube_links: [],
+    });
+    setViewMode('list');
   };
 
   if (loading) {
@@ -266,14 +436,24 @@ export default function AdminDashboard() {
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-white">Dashboard Admin</h1>
-          <Button
-            onClick={handleLogout}
-            variant="outline"
-            className="border-white/20 text-white hover:bg-white/10"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Logout
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setViewMode(viewMode === 'list' ? 'create' : 'list')}
+              variant="outline"
+              className="border-white/20 text-white hover:bg-white/10"
+            >
+              {viewMode === 'list' ? <Plus className="w-4 h-4 mr-2" /> : <X className="w-4 h-4 mr-2" />}
+              {viewMode === 'list' ? 'Nuovo Viaggio' : 'Lista Viaggi'}
+            </Button>
+            <Button
+              onClick={handleLogout}
+              variant="outline"
+              className="border-white/20 text-white hover:bg-white/10"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
+          </div>
         </div>
 
         {message && (
@@ -288,53 +468,153 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="p-6 glass">
-            <h2 className="text-xl font-semibold text-white mb-4">Aggiungi Nuovo Viaggio</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="title" className="text-white">Titolo</Label>
-                <Input
-                  id="title"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  required
-                  className="bg-black/50 border-white/20 text-white"
-                />
-              </div>
+        {viewMode === 'list' ? (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-semibold text-white mb-4">I Tuoi Viaggi</h2>
+            {trips.length === 0 ? (
+              <Card className="p-6 glass text-center text-white">
+                <p>Nessun viaggio creato ancora</p>
+              </Card>
+            ) : (
+              trips.map((trip) => (
+                <Card key={trip.id} className="p-6 glass">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-xl font-semibold text-white mb-2">{trip.title}</h3>
+                      <p className="text-gray-300 text-sm mb-2">
+                        {trip.country && trip.city ? `${trip.city}, ${trip.country}` : trip.country || trip.city || ''}
+                      </p>
+                      <p className="text-gray-400 text-sm">{trip.date}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => handleEditTrip(trip)}
+                        variant="outline"
+                        size="sm"
+                        className="border-white/20 text-white hover:bg-white/10"
+                      >
+                        Modifica
+                      </Button>
+                      <Button
+                        onClick={() => handleDeleteTrip(trip.id)}
+                        variant="outline"
+                        size="sm"
+                        className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                      >
+                        Elimina
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-gray-300 text-sm mb-4">{trip.description}</p>
+                  
+                  {trip.images && trip.images.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-white font-medium mb-2">Foto ({trip.images.length})</h4>
+                      <div className="grid grid-cols-4 gap-2">
+                        {trip.images.map((image: string, index: number) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={image}
+                              alt={`Foto ${index + 1}`}
+                              className="w-full h-24 object-cover rounded"
+                            />
+                            <button
+                              onClick={() => handleDeleteImageFromTrip(trip.id, image)}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              <div>
-                <Label htmlFor="description" className="text-white">Descrizione</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  required
-                  className="bg-black/50 border-white/20 text-white min-h-32"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="relative">
-                  <Label htmlFor="country" className="text-white">Nazione</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={(e) => handleAddImagesToTrip(e, trip.id)}
+                      className="hidden"
+                      id={`add-images-${trip.id}`}
+                      disabled={uploadProgress[trip.id] > 0}
+                    />
+                    <Button
+                      onClick={() => document.getElementById(`add-images-${trip.id}`)?.click()}
+                      variant="outline"
+                      size="sm"
+                      className="border-white/20 text-white hover:bg-white/10"
+                      disabled={uploadProgress[trip.id] > 0}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {uploadProgress[trip.id] > 0 ? `Caricamento ${uploadProgress[trip.id]}%` : 'Aggiungi Foto'}
+                    </Button>
+                  </div>
+                  {uploadProgress[trip.id] > 0 && (
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-700 rounded-full h-2">
+                        <div
+                          className="bg-blue-500 h-2 rounded-full transition-all"
+                          style={{ width: `${uploadProgress[trip.id]}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card className="p-6 glass">
+              <h2 className="text-xl font-semibold text-white mb-4">
+                {editingTrip ? 'Modifica Viaggio' : 'Aggiungi Nuovo Viaggio'}
+              </h2>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="title" className="text-white">Titolo</Label>
                   <Input
-                    id="country"
-                    value={formData.country}
-                    onChange={(e) => handleCountryChange(e.target.value)}
+                    id="title"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    required
                     className="bg-black/50 border-white/20 text-white"
-                    autoComplete="off"
                   />
-                  {showCountrySuggestions && countrySuggestions.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-black/90 border border-white/20 rounded-lg max-h-60 overflow-y-auto">
-                      {countrySuggestions.map((country) => (
-                        <button
-                          key={country}
-                          type="button"
-                          onClick={() => handleCountrySelect(country)}
-                          className="w-full px-4 py-2 text-left text-white hover:bg-white/10 transition-colors"
-                        >
-                          {country}
-                        </button>
+                </div>
+
+                <div>
+                  <Label htmlFor="description" className="text-white">Descrizione</Label>
+                  <Textarea
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    required
+                    className="bg-black/50 border-white/20 text-white min-h-32"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="relative">
+                    <Label htmlFor="country" className="text-white">Nazione</Label>
+                    <Input
+                      id="country"
+                      value={formData.country}
+                      onChange={(e) => handleCountryChange(e.target.value)}
+                      className="bg-black/50 border-white/20 text-white"
+                      autoComplete="off"
+                    />
+                    {showCountrySuggestions && countrySuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-black/90 border border-white/20 rounded-lg max-h-60 overflow-y-auto">
+                        {countrySuggestions.map((country) => (
+                          <button
+                            key={country}
+                            type="button"
+                            onClick={() => handleCountrySelect(country)}
+                            className="w-full px-4 py-2 text-left text-white hover:bg-white/10 transition-colors"
+                          >
+                            {country}
+                          </button>
                       ))}
                     </div>
                   )}
@@ -466,9 +746,24 @@ export default function AdminDashboard() {
                     accept="image/*"
                     onChange={handleImageUpload}
                     className="bg-black/50 border-white/20 text-white"
+                    disabled={uploadProgress.new > 0}
                   />
                   <Upload className="w-5 h-5 text-white" />
                 </div>
+                {uploadProgress.new > 0 && (
+                  <div className="mt-2">
+                    <div className="flex justify-between text-sm text-white mb-1">
+                      <span>Caricamento foto...</span>
+                      <span>{uploadProgress.new}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all"
+                        style={{ width: `${uploadProgress.new}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
                 {formData.images.length > 0 && (
                   <div className="mt-2 grid grid-cols-4 gap-2">
                     {formData.images.map((image, index) => (
@@ -498,8 +793,18 @@ export default function AdminDashboard() {
                 disabled={submitting}
                 className="w-full bg-white text-black hover:bg-gray-200"
               >
-                {submitting ? 'Caricamento...' : 'Aggiungi Viaggio'}
+                {submitting ? 'Caricamento...' : editingTrip ? 'Aggiorna Viaggio' : 'Aggiungi Viaggio'}
               </Button>
+              {editingTrip && (
+                <Button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  variant="outline"
+                  className="w-full border-white/20 text-white hover:bg-white/10"
+                >
+                  Annulla
+                </Button>
+              )}
             </form>
           </Card>
 
@@ -526,6 +831,7 @@ export default function AdminDashboard() {
             )}
           </Card>
         </div>
+        )}
       </div>
     </div>
   );
