@@ -1,36 +1,128 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Travel Tracker - I Nostri Viaggi
 
-## Getting Started
+App moderna per tracciare i viaggi fatti insieme, costruita con Next.js 15, Tailwind CSS, Supabase, Cloudinary e YouTube.
 
-First, run the development server:
+## Stack Tecnologico
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Next.js 15** (App Router) - Framework React
+- **Tailwind CSS** - Styling
+- **shadcn/ui** - Componenti UI
+- **Supabase** - Database & Autenticazione
+- **Cloudinary** - Hosting immagini
+- **YouTube** - Video embedding
+- **react-leaflet** - Mappa interattiva
+- **Framer Motion** - Animazioni
+- **lucide-react** - Icone
+
+## Configurazione
+
+### 1. Variabili d'Ambiente
+
+Crea un file `.env.local` nella radice del progetto con le seguenti variabili:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=tua_url_supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tua_chiave_anon_supabase
+NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=tua_cloudinary_cloud_name
+NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET=tua_cloudinary_upload_preset
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Database Supabase
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Esegui lo SQL seguente nell'editor SQL di Supabase per creare la tabella `trips`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```sql
+CREATE TABLE trips (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  lat FLOAT NOT NULL,
+  lng FLOAT NOT NULL,
+  date DATE NOT NULL,
+  images TEXT[] DEFAULT '{}',
+  youtube_links TEXT[] DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-## Learn More
+ALTER TABLE trips ENABLE ROW LEVEL SECURITY;
 
-To learn more about Next.js, take a look at the following resources:
+CREATE POLICY "Allow public read access" ON trips
+  FOR SELECT USING (true);
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+CREATE POLICY "Allow authenticated insert" ON trips
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+CREATE POLICY "Allow authenticated update" ON trips
+  FOR UPDATE USING (auth.uid() IS NOT NULL);
 
-## Deploy on Vercel
+CREATE POLICY "Allow authenticated delete" ON trips
+  FOR DELETE USING (auth.uid() IS NOT NULL);
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Configurazione Cloudinary
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Crea un account su [Cloudinary](https://cloudinary.com/)
+2. Crea un upload preset non firmato (unsigned)
+3. Copia il cloud name e l'upload preset nelle variabili d'ambiente
+
+### 4. Autenticazione Supabase
+
+1. Vai su Authentication > Providers nella dashboard Supabase
+2. Abilita Email provider
+3. Crea un utente admin che userai per accedere alla dashboard
+
+## Avvio del Progetto
+
+```bash
+npm install
+npm run dev
+```
+
+Apri [http://localhost:3000](http://localhost:3000) per vedere l'app.
+
+## Funzionalità
+
+### Pagina Principale
+- Mappa interattiva a schermo intero con tema scuro (CartoDB Dark Matter)
+- Pin personalizzati per ogni viaggio
+- Click su un pin apre un Sheet laterale con i dettagli
+- Galleria foto ottimizzata con next/image
+- Video YouTube integrati
+
+### Area Admin (`/admin`)
+- Login con Supabase Auth
+- Dashboard per aggiungere nuovi viaggi
+- Click sulla mappa per catturare automaticamente latitudine e longitudine
+- Upload foto su Cloudinary
+- Aggiunta multipla link YouTube
+
+## Struttura del Progetto
+
+```
+src/
+├── app/
+│   ├── admin/
+│   │   ├── page.tsx          # Login admin
+│   │   └── dashboard/
+│   │       └── page.tsx      # Dashboard admin
+│   ├── globals.css           # Stili globali
+│   ├── layout.tsx            # Layout principale
+│   └── page.tsx              # Home page con mappa
+├── components/
+│   ├── Map.tsx               # Componente mappa
+│   ├── TripDetailsSheet.tsx  # Sheet dettagli viaggio
+│   └── ui/                   # Componenti shadcn/ui
+├── lib/
+│   ├── supabase.ts           # Client Supabase
+│   └── utils.ts              # Utility functions
+└── types/
+    └── trip.ts               # Tipi TypeScript
+```
+
+## Deploy su Vercel
+
+1. Push del codice su GitHub
+2. Importa il progetto su Vercel
+3. Aggiungi le variabili d'ambiente nelle impostazioni Vercel
+4. Deploy automatico
