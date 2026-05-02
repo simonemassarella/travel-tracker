@@ -21,6 +21,12 @@ export default function AdminLogin() {
     setError('');
 
     try {
+      if (!supabase) {
+        setError('Errore: Connessione Supabase non disponibile');
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
