@@ -2,6 +2,8 @@ export interface Trip {
   id: string;
   title: string;
   description: string;
+  country?: string;
+  city?: string;
   lat: number;
   lng: number;
   date: string;
@@ -14,6 +16,8 @@ export interface Trip {
 export interface TripFormData {
   title: string;
   description: string;
+  country?: string;
+  city?: string;
   lat: number;
   lng: number;
   date: string;

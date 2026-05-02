@@ -7,6 +7,8 @@ CREATE TABLE trips (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT NOT NULL,
+  country TEXT,
+  city TEXT,
   lat FLOAT NOT NULL,
   lng FLOAT NOT NULL,
   date DATE NOT NULL,
@@ -34,6 +36,15 @@ CREATE POLICY "Allow authenticated update" ON trips
 -- Politica per permettere eliminazioni solo agli utenti autenticati
 CREATE POLICY "Allow authenticated delete" ON trips
   FOR DELETE USING (auth.uid() IS NOT NULL);
+```
+
+## Aggiunta Colonne Country e City (se la tabella esiste già)
+
+Se la tabella `trips` esiste già, esegui questo SQL per aggiungere le nuove colonne:
+
+```sql
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS city TEXT;
 ```
 
 ## Variabili d'Ambiente Richieste

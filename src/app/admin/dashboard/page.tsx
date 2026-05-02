@@ -9,8 +9,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
-import { LogOut, MapPin, Upload, Plus, X } from 'lucide-react';
+import { LogOut, MapPin, Upload, Plus, X, Search } from 'lucide-react';
 import { extractGPSFromImage } from '@/lib/exif';
+import { geocodeLocation } from '@/lib/geocoding';
+import { filterCountries } from '@/lib/countries';
 
 const Map = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -27,6 +29,8 @@ export default function AdminDashboard() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    country: '',
+    city: '',
     lat: 0,
     lng: 0,
     date: '',
@@ -36,6 +40,10 @@ export default function AdminDashboard() {
   const [youtubeInput, setYoutubeInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [countrySuggestions, setCountrySuggestions] = useState<string[]>([]);
+  const [showCountrySuggestions, setShowCountrySuggestions] = useState(false);
+  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
+  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
 
   useEffect(() => {
     async function checkAuth() {
@@ -62,6 +70,69 @@ export default function AdminDashboard() {
 
   const handleMapClick = (lat: number, lng: number) => {
     setFormData({ ...formData, lat, lng });
+  };
+
+  const handleCountryChange = (value: string) => {
+    setFormData({ ...formData, country: value });
+    const suggestions = filterCountries(value);
+    setCountrySuggestions(suggestions);
+    setShowCountrySuggestions(suggestions.length > 0);
+  };
+
+  const handleCountrySelect = (country: string) => {
+    setFormData({ ...formData, country });
+    setShowCountrySuggestions(false);
+  };
+
+  const handleCityChange = async (value: string) => {
+    setFormData({ ...formData, city: value });
+    
+    if (value.length > 2 && formData.country) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&city=${encodeURIComponent(value)}&country=${encodeURIComponent(formData.country)}&limit=5`;
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'TravelTracker/1.0',
+          },
+        });
+        const data = await response.json();
+        const cities = data.map((item: any) => item.name);
+        setCitySuggestions(cities);
+        setShowCitySuggestions(cities.length > 0);
+      } catch (error) {
+        console.error('Errore durante ricerca città:', error);
+      }
+    } else {
+      setCitySuggestions([]);
+      setShowCitySuggestions(false);
+    }
+  };
+
+  const handleCitySelect = (city: string) => {
+    setFormData({ ...formData, city });
+    setShowCitySuggestions(false);
+  };
+
+  const handleGeocode = async () => {
+    if (!formData.country && !formData.city) {
+      setMessage('Inserisci almeno nazione o città');
+      return;
+    }
+
+    try {
+      setMessage('Ricerca coordinate in corso...');
+      const result = await geocodeLocation(formData.country, formData.city);
+      
+      if (result) {
+        setFormData({ ...formData, lat: result.lat, lng: result.lng });
+        setMessage(`Coordinate trovate: ${result.lat.toFixed(6)}, ${result.lng.toFixed(6)}`);
+      } else {
+        setMessage('Nessun risultato trovato per questa posizione');
+      }
+    } catch (error) {
+      console.error('Errore durante geocoding:', error);
+      setMessage('Errore durante la ricerca delle coordinate');
+    }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -167,6 +238,8 @@ export default function AdminDashboard() {
       setFormData({
         title: '',
         description: '',
+        country: '',
+        city: '',
         lat: 0,
         lng: 0,
         date: '',
@@ -240,6 +313,67 @@ export default function AdminDashboard() {
                   className="bg-black/50 border-white/20 text-white min-h-32"
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="relative">
+                  <Label htmlFor="country" className="text-white">Nazione</Label>
+                  <Input
+                    id="country"
+                    value={formData.country}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    className="bg-black/50 border-white/20 text-white"
+                    autoComplete="off"
+                  />
+                  {showCountrySuggestions && countrySuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-black/90 border border-white/20 rounded-lg max-h-60 overflow-y-auto">
+                      {countrySuggestions.map((country) => (
+                        <button
+                          key={country}
+                          type="button"
+                          onClick={() => handleCountrySelect(country)}
+                          className="w-full px-4 py-2 text-left text-white hover:bg-white/10 transition-colors"
+                        >
+                          {country}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <Label htmlFor="city" className="text-white">Città</Label>
+                  <Input
+                    id="city"
+                    value={formData.city}
+                    onChange={(e) => handleCityChange(e.target.value)}
+                    className="bg-black/50 border-white/20 text-white"
+                    autoComplete="off"
+                  />
+                  {showCitySuggestions && citySuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-black/90 border border-white/20 rounded-lg max-h-60 overflow-y-auto">
+                      {citySuggestions.map((city) => (
+                        <button
+                          key={city}
+                          type="button"
+                          onClick={() => handleCitySelect(city)}
+                          className="w-full px-4 py-2 text-left text-white hover:bg-white/10 transition-colors"
+                        >
+                          {city}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                onClick={handleGeocode}
+                variant="outline"
+                className="w-full border-white/20 text-white hover:bg-white/10"
+              >
+                <Search className="w-4 h-4 mr-2" />
+                Cerca Coordinate GPS
+              </Button>
 
               <div>
                 <Label htmlFor="date" className="text-white">Data</Label>
