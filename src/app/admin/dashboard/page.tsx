@@ -39,6 +39,10 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     async function checkAuth() {
+      if (!supabase) {
+        router.push('/admin');
+        return;
+      }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push('/admin');
@@ -50,7 +54,9 @@ export default function AdminDashboard() {
   }, [router]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
     router.push('/admin');
   };
 
@@ -147,6 +153,12 @@ export default function AdminDashboard() {
     setMessage('');
 
     try {
+      if (!supabase) {
+        setMessage('Errore: Connessione Supabase non disponibile');
+        setSubmitting(false);
+        return;
+      }
+
       const { error } = await supabase.from('trips').insert([formData]);
 
       if (error) throw error;
@@ -365,7 +377,6 @@ export default function AdminDashboard() {
             <div className="h-96 rounded-lg overflow-hidden">
               <Map
                 trips={[]}
-                onTripClick={() => {}}
                 onMapClick={handleMapClick}
                 center={formData.lat && formData.lng ? [formData.lat, formData.lng] : undefined}
                 zoom={formData.lat && formData.lng ? 13 : 6}
